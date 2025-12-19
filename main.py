@@ -1,228 +1,122 @@
-# coding:utf8
+#coding:utf8
 
-import os
+import pandas as pd
 import math
-import numpy as np
-import matplotlib.pyplot as plt
-import scipy.stats as stats
+import scipy
+import scipy.stats
 
+#C'est la partie la plus importante dans l'analyse de données. D'une part, elle n'est pas simple à comprendre tant mathématiquement que pratiquement. D'autre, elle constitue une application des probabilités. L'idée consiste à comparer une distribution de probabilité (théorique) avec des observations concrètes. De fait, il faut bien connaître les distributions vues dans la séance précédente afin de bien pratiquer cette comparaison. Les probabilités permettent de définir une probabilité critique à partir de laquelle les résultats ne sont pas conformes à la théorie probabiliste.
+#Il n'est pas facile de proposer des analyses de données uniquement dans un cadre univarié. Vous utiliserez la statistique inférentielle principalement dans le cadre d'analyses multivariées. La statistique univariée est une statistique descriptive. Bien que les tests y soient possibles, comprendre leur intérêt et leur puissance d'analyse dans un tel cadre peut être déroutant.
+#Peu importe dans quelle théorie vous êtes, l'idée de la statistique inférentielle est de vérifier si ce que vous avez trouvé par une méthode de calcul est intelligent ou stupide. Est-ce que l'on peut valider le résultat obtenu ou est-ce que l'incertitude qu'il présente ne permet pas de conclure ? Peu importe également l'outil, à chaque mesure statistique, on vous proposera un test pour vous aider à prendre une décision sur vos résultats. Il faut juste être capable de le lire.
 
-def zipf_mandelbrot_pmf(k, s=1.2, q=1.0, K=100):
-	# k: array-like of integers (>=1)
-	ks = np.array(k, dtype=np.int64)
-	denom = np.sum((np.arange(1, K+1) + q) ** (-s))
-	pmf = (ks + q) ** (-s) / denom
-	# For k > K, probability ~0
-	pmf[ks > K] = 0.0
-	return pmf
+#Par convention, on place les fonctions locales au début du code après les bibliothèques.
+def ouvrirUnFichier(nom):
+    with open(nom, "r") as fichier:
+        contenu = pd.read_csv(fichier)
+    return contenu
 
+#Théorie de l'échantillonnage (intervalles de fluctuation)
+#L'échantillonnage se base sur la répétitivité.
+print("Résultat sur le calcul d'un intervalle de fluctuation")
 
-# --- Fonctions statistiques (moyenne et écart-type) ---
-def stats_dirac(k0):
-	return float(k0), 0.0
+donnees = pd.DataFrame(ouvrirUnFichier("./data/Echantillonnage-100-Echantillons.csv"))
 
+# Calcul des moyennes par colonne et arrondi à 0 décimale avec la fonction native round()
+moyennes = donnees.mean(axis=0)
+moyennes_arrondies = moyennes.apply(lambda x: round(x, 0))
 
-def stats_uniform_discrete(a, b):
-	n = b - a + 1
-	mean = 0.5 * (a + b)
-	var = ((n ** 2) - 1) / 12.0
-	return float(mean), math.sqrt(var)
+print("Moyennes par colonne (arrondies, 0 décimale) :")
+for col, val in moyennes_arrondies.items():
+    print(f"{col} : {val}")
 
+# Calcul des fréquences de l'échantillon : somme des 3 moyennes puis normalisation
+somme_moyennes = moyennes_arrondies.sum()
+freq_echantillon = (moyennes_arrondies / somme_moyennes).round(2)
 
-def stats_binomial(n, p):
-	mean = n * p
-	var = n * p * (1 - p)
-	return float(mean), math.sqrt(var)
+print("\nFréquences de l'échantillon (arrondies, 2 décimales) :")
+for col, val in freq_echantillon.items():
+    print(f"{col} : {val}")
 
+# Calcul des fréquences de la population mère à partir des totaux par colonne (même principe)
+totaux_population = donnees.sum(axis=0)
+freq_population = (totaux_population / totaux_population.sum()).round(2)
 
-def stats_poisson(lam):
-	mean = float(lam)
-	return mean, math.sqrt(mean)
+print("\nFréquences de la population mère (arrondies, 2 décimales) :")
+for col, val in freq_population.items():
+    print(f"{col} : {val}")
 
+# Intervalle de fluctuation à 95% (zC = 1.96)
+z = 1.96
+# effectif d'un échantillon estimé par la somme des moyennes (arrondies précédemment)
+n = int(somme_moyennes)
 
-def stats_zipf_mandelbrot(s=1.2, q=1.0, K=100):
-	ks = np.arange(1, K + 1)
-	pmf = zipf_mandelbrot_pmf(ks, s=s, q=q, K=K)
-	mean = float(np.sum(ks * pmf))
-	second = float(np.sum((ks ** 2) * pmf))
-	var = max(0.0, second - mean ** 2)
-	return mean, math.sqrt(var)
+# fréquences exactes sans arrondi pour le calcul statistique
+freq_population_exact = totaux_population / totaux_population.sum()
+freq_echantillon_exact = moyennes / moyennes.sum()
 
+print("\nIntervalle de fluctuation à 95% pour chaque catégorie (arrondis 2 décimales) :")
+for col in freq_population_exact.index:
+    p = float(freq_population_exact[col])
+    se = math.sqrt(p * (1 - p) / n)
+    lo = p - z * se
+    hi = p + z * se
+    lo_r = round(lo, 2)
+    hi_r = round(hi, 2)
+    sample_p = float(freq_echantillon_exact[col])
+    sample_p_r = round(sample_p, 2)
+    inside = (sample_p >= lo) and (sample_p <= hi)
+    print(f"{col} : [{lo_r} ; {hi_r}]  fréquence échantillon = {sample_p_r}  -> dans intervalle : {inside}")
 
-def stats_poisson_samples(lam, size=2000):
-	samples = stats.poisson.rvs(mu=lam, size=size)
-	return float(np.mean(samples)), float(np.std(samples, ddof=0))
+#Théorie de l'estimation (intervalles de confiance)
+#L'estimation se base sur l'effectif.
+print("Résultat sur le calcul d'un intervalle de confiance")
 
+#Théorie de la décision (tests d'hypothèse)
+#La décision se base sur la notion de risques alpha et bêta.
+#Comme à la séance précédente, l'ensemble des tests se trouve au lien : https://docs.scipy.org/doc/scipy/reference/stats.html
+print("Théorie de la décision")
 
-def stats_normal(mu, sigma):
-	return float(mu), float(sigma)
+# Prendre le premier échantillon (première ligne) et le convertir en list()
+premier_echantillon = list(donnees.iloc[0])
+# Somme de la ligne (effectif total de l'échantillon isolé)
+total_premier = sum(premier_echantillon)
 
+print("\nPremier échantillon (ligne 0) :", premier_echantillon)
+print("Somme du premier échantillon :", total_premier)
 
-def stats_lognormal(s, scale=1.0):
-	dist = stats.lognorm(s, scale=scale)
-	return float(dist.mean()), float(dist.std())
+# Calcul des fréquences de ce premier échantillon et affichage (arrondies à 2 décimales)
+freq_premier = [round(x / total_premier, 2) for x in premier_echantillon]
 
+print("\nFréquences du premier échantillon (arrondies, 2 décimales) :")
+for col, f in zip(donnees.columns, freq_premier):
+    print(f"{col} : {f}")
 
-def stats_uniform_cont(low, high):
-	dist = stats.uniform(loc=low, scale=(high - low))
-	return float(dist.mean()), float(dist.std())
+# Intervalle de confiance (dépend uniquement de la taille de l'échantillon = total_premier)
+z = 1.96
+n = total_premier
+freq_premier_exact = [x / n for x in premier_echantillon]
 
+print("\nIntervalle de confiance 95% pour chaque opinion (arrondis, 2 décimales) :")
+for col, p_hat in zip(donnees.columns, freq_premier_exact):
+    se = math.sqrt(p_hat * (1 - p_hat) / n)
+    lo = max(0.0, p_hat - z * se)
+    hi = min(1.0, p_hat + z * se)
+    print(f"{col} : [{round(lo,2)} ; {round(hi,2)}]  p_hat = {round(p_hat,2)}")
 
-def stats_chi2(df):
-	dist = stats.chi2(df)
-	return float(dist.mean()), float(dist.std())
+def tester_shapiro(nom_fichier):
+    df = ouvrirUnFichier(nom_fichier)
+    print(f"\nTest de Shapiro-Wilk pour {nom_fichier} :")
+    # sélectionner les colonnes numériques
+    numeric_cols = df.select_dtypes(include=['number']).columns if hasattr(df, "select_dtypes") else df.columns
+    for col in numeric_cols:
+        serie = df[col].dropna().values
+        if serie.size < 3:
+            print(f"  {col} : taille insuffisante pour Shapiro (n={serie.size})")
+            continue
+        stat, p = scipy.stats.shapiro(serie)
+        verdict = "ne rejette pas H0 (distribution normale plausible)" if p > 0.05 else "rejette H0 (pas normale)"
+        print(f"  {col} : W={stat:.4f}, p={p:.4f} -> {verdict}")
 
-
-def stats_pareto(b):
-	dist = stats.pareto(b)
-	return float(dist.mean()), float(dist.std())
-
-
-def compute_and_save_stats(path='plots/stats.csv'):
-	import csv
-
-	rows = []
-	# Discrètes
-	rows.append(('Dirac(k=5)',) + stats_dirac(5))
-	rows.append(('Uniforme discrète [0,10]',) + stats_uniform_discrete(0, 10))
-	rows.append(('Binomiale(n=20,p=0.3)',) + stats_binomial(20, 0.3))
-	rows.append(('Poisson(λ=4)',) + stats_poisson(4.0))
-	mz_mean, mz_std = stats_zipf_mandelbrot(s=1.2, q=1.0, K=60)
-	rows.append(('Zipf-Mandelbrot(s=1.2,q=1.0,K=60)', mz_mean, mz_std))
-
-	# Continues
-	rows.append(('Poisson(KDE samples λ=4)',) + stats_poisson_samples(4.0, size=2000))
-	rows.append(('Normale(0,1)',) + stats_normal(0.0, 1.0))
-	rows.append(('Log-Normale(s=0.6)',) + stats_lognormal(0.6))
-	rows.append((f'Uniforme continue [{-2.0},{3.0}]',) + stats_uniform_cont(-2.0, 3.0))
-	rows.append((f'Chi2(df=3)',) + stats_chi2(3))
-	rows.append((f'Pareto(b=3.0)',) + stats_pareto(3.0))
-
-	ensure_dir(os.path.dirname(path) or '.')
-	with open(path, 'w', newline='', encoding='utf8') as f:
-		writer = csv.writer(f)
-		writer.writerow(['distribution', 'mean', 'std'])
-		for r in rows:
-			writer.writerow(r)
-
-	return path
-
-
-def plot_discrete_pmf(name, ks, pmf, ax):
-	ax.bar(ks, pmf, align='center', alpha=0.7)
-	ax.set_title(name)
-	ax.set_xlabel('k')
-	ax.set_ylabel('P(X=k)')
-
-
-def plot_continuous_pdf(name, xs, pdf, ax):
-	ax.plot(xs, pdf, lw=2)
-	ax.set_title(name)
-	ax.set_xlabel('x')
-	ax.set_ylabel('densité')
-
-
-def ensure_dir(d):
-	if not os.path.exists(d):
-		os.makedirs(d)
-
-
-def main():
-	ensure_dir('plots')
-
-	# --- Discrètes ---
-	fig, axes = plt.subplots(2, 3, figsize=(12, 8))
-	axes = axes.ravel()
-
-	# 1) Loi de Dirac (masse en k0)
-	k0 = 5
-	ks = np.arange(0, 16)
-	pmf_dirac = np.zeros_like(ks, dtype=float)
-	pmf_dirac[ks == k0] = 1.0
-	plot_discrete_pmf('Dirac (masse en {})'.format(k0), ks, pmf_dirac, axes[0])
-
-	# 2) Loi uniforme discrète sur [a,b]
-	a, b = 0, 10
-	ks = np.arange(a, b+1)
-	pmf_unif = np.ones_like(ks, dtype=float) / len(ks)
-	plot_discrete_pmf('Uniforme discrète [{}..{}]'.format(a, b), ks, pmf_unif, axes[1])
-
-	# 3) Binomiale
-	n, p = 20, 0.3
-	ks = np.arange(0, n+1)
-	pmf_binom = stats.binom.pmf(ks, n, p)
-	plot_discrete_pmf('Binomiale(n={}, p={})'.format(n, p), ks, pmf_binom, axes[2])
-
-	# 4) Poisson (discrète)
-	lam = 4.0
-	ks = np.arange(0, 21)
-	pmf_pois = stats.poisson.pmf(ks, lam)
-	plot_discrete_pmf('Poisson(λ={})'.format(lam), ks, pmf_pois, axes[3])
-
-	# 5) Zipf-Mandelbrot (implémentation finie)
-	K = 60
-	ks = np.arange(1, K+1)
-	pmf_zm = zipf_mandelbrot_pmf(ks, s=1.2, q=1.0, K=K)
-	plot_discrete_pmf('Zipf-Mandelbrot (s=1.2, q=1.0)', ks, pmf_zm, axes[4])
-
-	# empty placeholder or repeat
-	axes[5].axis('off')
-
-	plt.tight_layout()
-	fig.savefig(os.path.join('plots', 'discrete_distributions.png'))
-
-	# --- Continues ---
-	fig2, axes2 = plt.subplots(3, 2, figsize=(12, 12))
-	axes2 = axes2.ravel()
-
-	# NOTE: User listed Poisson in continues — we'll show a smoothed KDE of Poisson samples
-	# 1) Poisson (échantillons + KDE pour approcher une densité continue)
-	lam = 4.0
-	samples = stats.poisson.rvs(mu=lam, size=2000)
-	xs = np.linspace(0, samples.max()+3, 200)
-	# KDE on continuous grid
-	kde = stats.gaussian_kde(samples)
-	pdf_kde = kde(xs)
-	plot_continuous_pdf('Poisson (KDE des échantillons λ={})'.format(lam), xs, pdf_kde, axes2[0])
-
-	# 2) Normale
-	mu, sigma = 0.0, 1.0
-	xs = np.linspace(mu-4*sigma, mu+4*sigma, 400)
-	pdf_norm = stats.norm.pdf(xs, loc=mu, scale=sigma)
-	plot_continuous_pdf('Normale(μ={}, σ={})'.format(mu, sigma), xs, pdf_norm, axes2[1])
-
-	# 3) Log-normale
-	s = 0.6  # shape parameter
-	xs = np.linspace(1e-3, 8, 400)
-	pdf_lognorm = stats.lognorm.pdf(xs, s)
-	plot_continuous_pdf('Log-Normale(s={})'.format(s), xs, pdf_lognorm, axes2[2])
-
-	# 4) Uniforme continue
-	low, high = -2.0, 3.0
-	xs = np.linspace(low-0.5, high+0.5, 400)
-	pdf_unif = stats.uniform.pdf(xs, loc=low, scale=(high-low))
-	plot_continuous_pdf('Uniforme continue [{}, {}]'.format(low, high), xs, pdf_unif, axes2[3])
-
-	# 5) Loi du χ²
-	df = 3
-	xs = np.linspace(0, 12, 400)
-	pdf_chi2 = stats.chi2.pdf(xs, df)
-	plot_continuous_pdf('Chi2(df={})'.format(df), xs, pdf_chi2, axes2[4])
-
-	# 6) Pareto (scipy pareto uses >1 support)
-	b = 3.0  # shape
-	xs = np.linspace(1e-3, 6, 400)
-	pdf_pareto = stats.pareto.pdf(xs, b)
-	plot_continuous_pdf('Pareto(b={})'.format(b), xs, pdf_pareto, axes2[5])
-
-	plt.tight_layout()
-	fig2.savefig(os.path.join('plots', 'continuous_distributions.png'))
-
-	print('Graphiques sauvegardés dans le dossier plots/')
-	stats_path = compute_and_save_stats('plots/stats.csv')
-	print(f'Statistiques sauvegardées dans {stats_path}')
-
-
-if __name__ == '__main__':
-	main()
-
+# Exécuter les tests sur les deux fichiers fournis
+tester_shapiro("./data/Loi-normale-Test-1.csv")
+tester_shapiro("./data/Loi-normale-Test-2.csv")
